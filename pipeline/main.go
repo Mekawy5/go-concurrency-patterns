@@ -1,69 +1,94 @@
 package main
 
 import (
-	"bufio"
+	"encoding/csv"
 	"fmt"
 	"io"
+	"log"
 	"os"
-	"strconv"
 )
 
 func main() {
-	data := displayData(processData(generateData()))
+	records, err := readData("file.csv")
+	if err != nil {
+		log.Fatalf("Could not read csv %v", err)
+	}
 
-	for str := range data {
-		fmt.Println(str)
+	output := display(concatenate(swapValues(records)))
+
+	for val := range output {
+		fmt.Println(val)
 	}
 }
 
-func generateData() <-chan int64 {
-	const fp = "integers.txt"
-	out := make(chan int64)
+func readData(file string) (<-chan []string, error) {
+	f, err := os.Open(file)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make(chan []string)
 
 	go func() {
-		f, _ := os.Open(fp)
-		defer close(out)
-		defer f.Close()
-
-		r := bufio.NewReader(f)
+		cr := csv.NewReader(f)
+		cr.FieldsPerRecord = 3
 
 		for {
-			line, _, err := r.ReadLine()
+			record, err := cr.Read()
 			if err == io.EOF {
+				close(out)
 				break
 			}
 
-			integer, _ := strconv.ParseInt(string(line), 10, 0)
-			out <- integer
+			out <- record
 		}
 	}()
+
+	return out, nil
+}
+
+func swapValues(data <-chan []string) <-chan []string {
+	oc := make(chan []string)
+
+	go func(data <-chan []string) {
+		defer close(oc)
+
+		for row := range data {
+			row[0], row[1], row[2] = row[1], row[2], row[0]
+			oc <- row
+		}
+	}(data)
+
+	return oc
+}
+
+func concatenate(data <-chan []string) <-chan []string {
+	out := make(chan []string)
+
+	go func(data <-chan []string) {
+		defer close(out)
+		for arr := range data {
+			for i := 0; i < len(arr); i++ {
+				arr[i] = "9" + arr[i] + "0"
+			}
+			out <- arr
+		}
+	}(data)
 
 	return out
 }
 
-func processData(c <-chan int64) <-chan int64 {
-	oc := make(chan int64)
-	go func() {
-		for n := range c {
-			input := n * n
-			oc <- input
-		}
-		close(oc)
-	}()
-	return oc
-}
-
-func displayData(c <-chan int64) <-chan string {
+func display(data <-chan []string) <-chan string {
 	out := make(chan string)
-	go func() {
+
+	go func(data <-chan []string) {
 		defer close(out)
-
-		for n := range c {
-			str := strconv.Itoa(int(n))
-
-			out <- fmt.Sprintf("Current number is: %s \n", str)
+		for arr := range data {
+			for i := 0; i < len(arr); i++ {
+				out <- arr[i]
+			}
 		}
-	}()
+	}(data)
 
 	return out
 }
